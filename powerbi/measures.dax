@@ -1,0 +1,174 @@
+// DAX measures in the MRP dashboard model (table: _Measures).
+// Exported from the Power BI file. Every KPI is defined once here and reused by every visual.
+
+// ==================================================================
+// PRODUCTION
+// ==================================================================
+
+[Planned KG] =
+    SUM ( Fact_Production[Planned_Qty_KG] )
+
+[Gross Produced KG] =
+    SUM ( Fact_Production[Gross_Produced_KG] )
+
+[Scrap KG] =
+    SUM ( Fact_Production[Scrap_KG] )
+
+[Good Produced KG] =
+    SUM ( Fact_Production[Good_Produced_KG] )
+
+[Production Cost AED] =
+    SUM ( Fact_Production[Actual_Cost_AED] )
+
+[Plan Attainment %] =
+    DIVIDE ( [Gross Produced KG], [Planned KG] )
+
+[Scrap Rate %] =
+    DIVIDE ( [Scrap KG], [Gross Produced KG] )
+
+[Cost per KG AED] =
+    DIVIDE ( [Production Cost AED], [Good Produced KG] )
+
+[Scrap Target %] =
+    0.014
+
+[Excess Scrap Cost AED] =
+    VAR Target = [Scrap Target %]
+    RETURN
+        SUMX (
+            Fact_Production,
+            VAR CostPerKg =
+                DIVIDE ( Fact_Production[Actual_Cost_AED], Fact_Production[Gross_Produced_KG] )
+            VAR ExcessKg =
+                MAX ( 0, Fact_Production[Scrap_KG] - Fact_Production[Gross_Produced_KG] * Target )
+            RETURN
+                ExcessKg * CostPerKg
+        )
+
+// ==================================================================
+// CAPACITY
+// ==================================================================
+
+[Available Capacity KG] =
+    CALCULATE (
+        SUM ( Fact_Capacity[Available_Capacity_KG] ),
+        Dim_Date[Period_Type] = "Actual"
+    )
+
+[Capacity Utilisation %] =
+    DIVIDE ( [Gross Produced KG], [Available Capacity KG] )
+
+[Plan vs Capacity %] =
+    DIVIDE ( [Planned KG], [Available Capacity KG] )
+
+[Utilisation Target %] =
+    0.85
+
+// ==================================================================
+// FORWARD PLAN
+// ==================================================================
+
+[MRP Plan KG] =
+    SUM ( Fact_MRP_Plan[MRP_Planned_Qty_KG] )
+
+[Forward Capacity KG] =
+    CALCULATE (
+        SUM ( Fact_Capacity[Available_Capacity_KG] ),
+        Dim_Date[Period_Type] = "MRP plan"
+    )
+
+[Forward Load %] =
+    DIVIDE ( [MRP Plan KG], [Forward Capacity KG] )
+
+[Spare Capacity KG] =
+    [Forward Capacity KG] - [MRP Plan KG]
+
+// ==================================================================
+// DEMAND AND SERVICE
+// ==================================================================
+
+[Actual Demand KG] =
+    SUM ( Fact_Demand[Actual_Demand_KG] )
+
+[Forecast Demand KG] =
+    SUM ( Fact_Demand[Forecast_Demand_KG] )
+
+[Backorder KG] =
+    SUM ( Fact_Demand[Backorder_KG] )
+
+[Revenue AED] =
+    SUM ( Fact_Demand[Net_Revenue_AED] )
+
+[Revenue at Risk AED] =
+    SUM ( Fact_Demand[Revenue_At_Risk_AED] )
+
+[Fill Rate %] =
+    1 - DIVIDE ( [Backorder KG], [Actual Demand KG] )
+
+[Forecast Accuracy %] =
+    1    - DIVIDE (
+            SUMX (
+                Fact_Demand,
+                ABS ( Fact_Demand[Forecast_Demand_KG] - Fact_Demand[Actual_Demand_KG] )
+            ),
+            [Actual Demand KG]
+        )
+
+[Forecast Bias %] =
+    DIVIDE ( [Forecast Demand KG], [Actual Demand KG] ) - 1
+
+[Emergency Transfers] =
+    COUNTROWS ( Fact_Transfers )
+
+[Transfer Freight AED] =
+    SUM ( Fact_Transfers[Freight_Cost_AED] )
+
+// ==================================================================
+// INVENTORY
+// ==================================================================
+
+[Closing Stock KG] =
+    VAR LastMonth = MAX ( Fact_Inventory[Month] )
+    RETURN
+        CALCULATE (
+            SUM ( Fact_Inventory[Closing_Stock_KG] ),
+            Fact_Inventory[Month] = LastMonth
+        )
+
+[Stock Value AED] =
+    VAR LastMonth = MAX ( Fact_Inventory[Month] )
+    RETURN
+        CALCULATE (
+            SUMX (
+                Fact_Inventory,
+                Fact_Inventory[Closing_Stock_KG] * RELATED ( Dim_Material[Std_Cost_AED_per_KG] )
+            ),
+            Fact_Inventory[Month] = LastMonth
+        )
+
+[Aged Stock Value AED] =
+    VAR LastMonth = MAX ( Fact_Inventory[Month] )
+    RETURN
+        CALCULATE (
+            SUMX (
+                Fact_Inventory,
+                Fact_Inventory[Stock_Over_180_Days_KG] * RELATED ( Dim_Material[Std_Cost_AED_per_KG] )
+            ),
+            Fact_Inventory[Month] = LastMonth
+        )
+
+[Avg Monthly Demand L3M KG] =
+    VAR LastMonth = MAX ( Fact_Demand[Month] )
+    RETURN
+        DIVIDE (
+            CALCULATE (
+                SUM ( Fact_Demand[Actual_Demand_KG] ),
+                REMOVEFILTERS ( Dim_Date ),
+                Fact_Demand[Month] > EDATE ( LastMonth, -3 ),
+                Fact_Demand[Month] <= LastMonth
+            ),
+            3
+        )
+
+[Months of Cover] =
+    DIVIDE ( [Closing Stock KG], [Avg Monthly Demand L3M KG] )
